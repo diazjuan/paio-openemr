@@ -4,7 +4,7 @@
 
 **OpenEMR 8.0.0.2 + Jitsi Meet + CIE-11 (OMS) + Módulos PAHO**
 
-Versión 2.0 · Junio 2026 · Instalación limpia desde cero · Servidor Ubuntu 24.x · Docker
+Versión 2.1 · Agosto 2026 · Instalación limpia desde cero · Servidor Ubuntu 24.x · Docker
 
 ---
 
@@ -38,7 +38,7 @@ Esta guía describe la instalación completa de PAIO8 desde cero sobre un servid
 | OpenEMR 8.0.0.2 | Repositorio oficial de OpenEMR en GitHub, publicado como imagen `openemr/openemr:8.0.0.2` | Docker Compose descarga la imagen al ejecutar `docker compose up` |
 | Base de datos (MariaDB 11.8) | Imagen oficial `mariadb:11.8` | Docker Compose |
 | Jitsi Meet (web, prosody, jicofo, jvb) | Imágenes oficiales de Jitsi `jitsi/web`, `jitsi/prosody`, `jitsi/jicofo`, `jitsi/jvb` (etiqueta stable) | Docker Compose descarga las imágenes; Jitsi corre dentro de los contenedores |
-| API CIE-11 (OMS) | Imagen oficial de la OMS `whoicd/icd-api` | Docker Compose; el contenido CIE-11 lo provee directamente la OMS dentro de la imagen |
+| API CIE-11 (OMS) | Imagen oficial de la OMS `whoicd/icd-api` | Docker Compose descarga la imagen; la clasificación no viene dentro de la imagen. El contenedor descarga desde la OMS el release indicado en `include` cada vez que arranca, por lo que necesita salida a internet en cada arranque |
 | Módulos PAHO (4) | Repositorios en `github.com/diazjuan` | Se clonan con `git clone` dentro de `custom_modules/` (paso 8) |
 
 Los cuatro módulos PAHO incluidos en esta instalación son:
@@ -60,6 +60,7 @@ Antes de iniciar, asegúrese de contar con lo siguiente:
 - Acceso **SSH** al servidor con un usuario con permisos `sudo`.
 - Un **dominio** (por ejemplo `emr.sudominio.com`) cuyo registro DNS apunte a la IP pública del servidor.
 - Puertos abiertos en el firewall: **80/TCP** (emisión y renovación del certificado), **443/TCP** (OpenEMR), **8444/TCP** (Jitsi web) y **10000/UDP** (medios de Jitsi/JVB).
+- Salida **HTTPS** hacia los servidores de la OMS. El contenedor de CIE-11 descarga la clasificación en cada arranque; sin esa salida el contenedor aborta y la búsqueda CIE-11 deja de funcionar.
 
 Verifique que Docker y Docker Compose estén disponibles:
 
@@ -78,6 +79,8 @@ Conéctese al servidor por SSH y cree la carpeta de trabajo:
 
 ```bash
 mkdir -p ~/paio8/custom_modules
+mkdir -p ~/paio8/logs/apache2 ~/paio8/logs/php84
+mkdir -p ~/paio8/php-conf
 cd ~/paio8
 ```
 
@@ -87,6 +90,11 @@ Al terminar la instalación, la estructura será la siguiente:
 ~/paio8/
 |- .env                         <- configuración (paso 5)
 |- docker-compose.yml           <- definición de servicios (paso 6)
+|- logs/                        <- logs en el host (se crean a mano, paso 3)
+|   |- apache2/                 <- servidor web: error, access, ssl_error
+|   `- php84/                   <- errores PHP de OpenEMR
+|- php-conf/
+|   `- openemr-logging.ini      <- ajustes de logging de PHP (paso 6)
 |- jitsi-config/                <- config de Jitsi (la generan los contenedores)
 |- custom_modules/              <- módulos PAHO (se clonan en el paso 8)
 |   |- paho_jitsi_televisit_module/
@@ -96,6 +104,10 @@ Al terminar la instalación, la estructura será la siguiente:
 ```
 
 > **Nota:** La carpeta `jitsi-config/` la generan automáticamente los contenedores de Jitsi la primera vez que arrancan; no necesita crearla ni editarla a mano.
+
+> **Nota:** Las carpetas `logs/apache2/` y `logs/php84/` deben existir antes del paso 7. Docker crea por su cuenta el punto de montaje `logs/`, pero lo deja vacío, y un montaje vacío oculta las carpetas de log que vienen dentro de la imagen. Apache termina al arrancar si falta `apache2/`. Los archivos de log los crean Apache y PHP.
+
+> **Importante:** Deje `custom_modules/` vacía hasta el paso 8. OpenEMR ejecuta una pasada de permisos sobre todo su árbol de directorios después de la configuración inicial, y esa pasada recorre lo que ya esté montado ahí.
 
 ---
 
@@ -239,13 +251,17 @@ services:
       JWT_APP_ID: ${JWT_APP_ID}
       JWT_APP_SECRET: ${JWT_APP_SECRET}
     volumes:
-      - openemr_logs:/var/log
+      # Logs en el host, legibles sin entrar al contenedor
+      - ./logs:/var/log
+      - ./php-conf/openemr-logging.ini:/etc/php84/conf.d/zz-openemr-logging.ini:ro
       - openemr_sites:/var/www/localhost/htdocs/openemr/sites
       # Modulos PAHO (se clonan en el paso 8)
       - ./custom_modules:/var/www/localhost/htdocs/openemr/interface/modules/custom_modules
-      # Certificados TLS de produccion (Let's Encrypt)
-      - /etc/letsencrypt/live/emr.sudominio.com/fullchain.pem:/etc/ssl/certs/webserver.cert.pem:ro
-      - /etc/letsencrypt/live/emr.sudominio.com/privkey.pem:/etc/ssl/private/webserver.key.pem:ro
+      # Certificados TLS de produccion (Let's Encrypt). Se montan sobre las
+      # rutas selfsigned porque el contenedor borra webserver.cert.pem en cada
+      # arranque y lo vuelve a apuntar aqui con un enlace simbolico.
+      - /etc/letsencrypt/live/emr.sudominio.com/fullchain.pem:/etc/ssl/certs/selfsigned.cert.pem:ro
+      - /etc/letsencrypt/live/emr.sudominio.com/privkey.pem:/etc/ssl/private/selfsigned.key.pem:ro
     healthcheck:
       test: ["CMD", "/usr/bin/curl", "--fail", "--insecure", "--location", "--show-error", "--silent", "https://localhost/meta/health/readyz"]
       start_period: 3m
@@ -403,7 +419,6 @@ services:
 volumes:
   mysql_data:
   openemr_sites:
-  openemr_logs:
 
 networks:
   paio_network:
@@ -411,6 +426,38 @@ networks:
 ```
 
 Guarde y salga: `Ctrl+O` → `Enter` → `Ctrl+X`.
+
+### 6.1 Por qué el certificado se monta en las rutas `selfsigned`
+
+El contenedor de OpenEMR configura su propio TLS en cada arranque. Borra `/etc/ssl/certs/webserver.cert.pem` y `/etc/ssl/private/webserver.key.pem`, y los vuelve a crear como enlaces simbólicos hacia `selfsigned.cert.pem` y `selfsigned.key.pem`. Un archivo montado desde el host no se puede borrar desde dentro del contenedor, así que montar los archivos de Let's Encrypt en las rutas `webserver` hace que ese borrado falle, y el contenedor se detiene con código de salida 1 y el mensaje `rm: can't remove '/etc/ssl/certs/webserver.cert.pem': Resource busy`.
+
+Montarlos en las rutas `selfsigned` evita el conflicto. El contenedor encuentra la clave ya presente, omite generar la suya, borra y recrea los enlaces `webserver` con normalidad, y Apache termina sirviendo el certificado de Let's Encrypt.
+
+### 6.2 Archivo de logging de PHP
+
+Por defecto OpenEMR escribe sus errores de PHP dentro del log de errores de Apache, mezclados con los mensajes del servidor web. Este archivo los envía a un log aparte:
+
+```bash
+nano ~/paio8/php-conf/openemr-logging.ini
+```
+
+```ini
+error_log = /var/log/php84/openemr-error.log
+log_errors = On
+```
+
+Guarde y salga: `Ctrl+O` → `Enter` → `Ctrl+X`.
+
+Resultado después del paso 7:
+
+| Archivo en el host | Contenido |
+| --- | --- |
+| `logs/apache2/error.log` | Errores de Apache |
+| `logs/apache2/access.log` | Peticiones HTTP |
+| `logs/apache2/ssl_error.log` | Errores de TLS |
+| `logs/php84/openemr-error.log` | Errores PHP de OpenEMR |
+
+> **Nota:** El log de actividad de OpenEMR (quién hizo qué y cuándo) no es un archivo. Se guarda en la base de datos y se consulta desde **Administración → Logs**.
 
 ---
 
@@ -424,6 +471,8 @@ docker compose up -d
 ```
 
 > **Nota:** La primera vez puede tardar varios minutos mientras Docker descarga las imágenes de OpenEMR, Jitsi, MariaDB y la API CIE-11 de la OMS. La descarga del contenido CIE-11 puede tardar más que el resto.
+
+> **Nota:** El contenedor de CIE-11 no tiene health check, por lo que `docker compose ps` lo muestra como activo antes de que termine de cargar la clasificación. Confírmelo con `docker compose logs -f icd11-api` y espere la línea `ICD-11 Container is Running!`.
 
 ### 7.2 Verificar los contenedores
 
@@ -610,11 +659,17 @@ Antes de crear la primera Tele Visita, complete la configuración básica en est
 Para actualizar un módulo a la última versión publicada en `github.com/diazjuan`, entre en su carpeta y haga `git pull`; luego reinicie OpenEMR:
 
 ```bash
-cd ~/paio8/custom_modules/paho_jitsi_televisit_module && git pull
+cd ~/paio8/custom_modules/paho_jitsi_televisit_module
+chmod -R u+w .
+git pull
 cd ~/paio8 && docker compose restart openemr
 ```
 
+El `chmod -R u+w` hace falta porque OpenEMR deja sus archivos en modo solo lectura. La pasada de permisos descrita en el paso 3 se repite cada vez que se recrea el contenedor, y desde el paso 8 los módulos están dentro del árbol que recorre. Sin permiso de escritura, `git pull` falla con `error: unable to unlink old file`.
+
 > **Nota:** Repita el `git pull` en la carpeta del módulo que desee actualizar. Si una actualización incluye cambios de esquema, vuelva a Gestionar Módulos y siga la indicación de actualización del Module Manager.
+
+> **Nota:** `docker compose restart openemr` reutiliza el contenedor existente y no ejecuta la pasada de permisos. `docker compose up -d` después de cambiar la imagen o el archivo compose crea un contenedor nuevo y sí la ejecuta.
 
 ---
 
@@ -625,6 +680,10 @@ cd ~/paio8 && docker compose restart openemr
 | `docker compose ps` | Ver el estado de todos los contenedores |
 | `docker compose logs -f openemr` | Ver los logs de OpenEMR en tiempo real |
 | `docker compose logs -f jitsi-web` | Ver los logs de Jitsi en tiempo real |
+| `docker compose logs -f icd11-api` | Ver los logs de la API CIE-11 en tiempo real |
+| `tail -f ~/paio8/logs/apache2/error.log` | Errores del servidor web, desde el host |
+| `tail -f ~/paio8/logs/apache2/access.log` | Peticiones HTTP, desde el host |
+| `tail -f ~/paio8/logs/php84/openemr-error.log` | Errores PHP de OpenEMR, desde el host |
 | `docker compose restart openemr` | Reiniciar solo OpenEMR |
 | `docker compose down` | Detener todos los servicios |
 | `docker compose up -d` | Iniciar todos los servicios |

@@ -2,9 +2,9 @@
 
 [English](README.md) | **Español**
 
-**OpenEMR 8.0.0.2 + Jitsi Meet + CIE-11 (OMS) + Módulos PAHO**
+**OpenEMR 8.3.0 + Jitsi Meet + CIE-11 (OMS) + Módulos PAHO**
 
-Versión 2.1 · Agosto 2026 · Instalación limpia desde cero · Servidor Ubuntu 24.x · Docker
+Versión 2.2 · Septiembre 2026 · Instalación limpia desde cero · Servidor Ubuntu 24.x · Docker
 
 ---
 
@@ -18,7 +18,7 @@ Versión 2.1 · Agosto 2026 · Instalación limpia desde cero · Servidor Ubuntu
 6. [Archivo `docker-compose.yml`](#6-archivo-docker-composeyml)
 7. [Iniciar los contenedores](#7-iniciar-los-contenedores)
 8. [Clonar los módulos PAHO](#8-clonar-los-módulos-paho)
-9. [Registrar, instalar y habilitar los módulos](#9-registrar-instalar-y-habilitar-los-módulos)
+9. [Instalar y habilitar los módulos](#9-instalar-y-habilitar-los-módulos)
 10. [Configurar cada módulo](#10-configurar-cada-módulo)
 11. [Configuración inicial de OpenEMR](#11-configuración-inicial-de-openemr)
 12. [Flujo de Tele Visita](#12-flujo-de-tele-visita)
@@ -35,7 +35,7 @@ Esta guía describe la instalación completa de PAIO8 desde cero sobre un servid
 
 | Componente | Origen | Cómo se obtiene |
 | --- | --- | --- |
-| OpenEMR 8.0.0.2 | Repositorio oficial de OpenEMR en GitHub, publicado como imagen `openemr/openemr:8.0.0.2` | Docker Compose descarga la imagen al ejecutar `docker compose up` |
+| OpenEMR 8.3.0 | Repositorio oficial de OpenEMR en GitHub, publicado como imagen `openemr/openemr:8.3.0` | Docker Compose descarga la imagen al ejecutar `docker compose up` |
 | Base de datos (MariaDB 11.8) | Imagen oficial `mariadb:11.8` | Docker Compose |
 | Jitsi Meet (web, prosody, jicofo, jvb) | Imágenes oficiales de Jitsi `jitsi/web`, `jitsi/prosody`, `jitsi/jicofo`, `jitsi/jvb` (etiqueta stable) | Docker Compose descarga las imágenes; Jitsi corre dentro de los contenedores |
 | API CIE-11 (OMS) | Imagen oficial de la OMS `whoicd/icd-api` | Docker Compose descarga la imagen; la clasificación no viene dentro de la imagen. El contenedor descarga desde la OMS el release indicado en `include` cada vez que arranca, por lo que necesita salida a internet en cada arranque |
@@ -79,7 +79,7 @@ Conéctese al servidor por SSH y cree la carpeta de trabajo:
 
 ```bash
 mkdir -p ~/paio8/custom_modules
-mkdir -p ~/paio8/logs/apache2 ~/paio8/logs/php84
+mkdir -p ~/paio8/logs/apache2 ~/paio8/logs/php85
 mkdir -p ~/paio8/php-conf
 cd ~/paio8
 ```
@@ -92,7 +92,7 @@ Al terminar la instalación, la estructura será la siguiente:
 |- docker-compose.yml           <- definición de servicios (paso 6)
 |- logs/                        <- logs en el host (se crean a mano, paso 3)
 |   |- apache2/                 <- servidor web: error, access, ssl_error
-|   `- php84/                   <- errores PHP de OpenEMR
+|   `- php85/                   <- errores PHP de OpenEMR
 |- php-conf/
 |   `- openemr-logging.ini      <- ajustes de logging de PHP (paso 6)
 |- jitsi-config/                <- config de Jitsi (la generan los contenedores)
@@ -105,7 +105,7 @@ Al terminar la instalación, la estructura será la siguiente:
 
 > **Nota:** La carpeta `jitsi-config/` la generan automáticamente los contenedores de Jitsi la primera vez que arrancan; no necesita crearla ni editarla a mano.
 
-> **Nota:** Las carpetas `logs/apache2/` y `logs/php84/` deben existir antes del paso 7. Docker crea por su cuenta el punto de montaje `logs/`, pero lo deja vacío, y un montaje vacío oculta las carpetas de log que vienen dentro de la imagen. Apache termina al arrancar si falta `apache2/`. Los archivos de log los crean Apache y PHP.
+> **Nota:** Las carpetas `logs/apache2/` y `logs/php85/` deben existir antes del paso 7. Docker crea por su cuenta el punto de montaje `logs/`, pero lo deja vacío, y un montaje vacío oculta las carpetas de log que vienen dentro de la imagen. Apache termina al arrancar si falta `apache2/`. Los archivos de log los crean Apache y PHP.
 
 > **Importante:** Deje `custom_modules/` vacía hasta el paso 8. OpenEMR ejecuta una pasada de permisos sobre todo su árbol de directorios después de la configuración inicial, y esa pasada recorre lo que ya esté montado ahí.
 
@@ -138,7 +138,7 @@ Pegue el siguiente contenido y reemplace cada valor según su entorno. Sustituya
 
 ```ini
 # =============================================================
-# PAIO8 - OpenEMR 8.0.0.2 + Jitsi + CIE-11
+# PAIO8 - OpenEMR 8.3.0 + Jitsi + CIE-11
 # Archivo de configuracion (.env)
 # =============================================================
 
@@ -197,7 +197,7 @@ Define los siguientes 7 servicios. Recuerde que estas imágenes se descargan sol
 | Servicio | Imagen | Puerto host |
 | --- | --- | --- |
 | mysql | `mariadb:11.8` | interno |
-| openemr | `openemr/openemr:8.0.0.2` | 80, 443 |
+| openemr | `openemr/openemr:8.3.0` | 80, 443 |
 | jitsi-web | `jitsi/web:stable` | 8444 |
 | prosody | `jitsi/prosody:stable` | interno |
 | jicofo | `jitsi/jicofo:stable` | interno |
@@ -230,7 +230,7 @@ services:
       - paio_network
 
   openemr:
-    image: openemr/openemr:8.0.0.2
+    image: openemr/openemr:8.3.0
     container_name: paio_openemr
     restart: unless-stopped
     depends_on:
@@ -253,7 +253,7 @@ services:
     volumes:
       # Logs en el host, legibles sin entrar al contenedor
       - ./logs:/var/log
-      - ./php-conf/openemr-logging.ini:/etc/php84/conf.d/zz-openemr-logging.ini:ro
+      - ./php-conf/openemr-logging.ini:/etc/php85/conf.d/zz-openemr-logging.ini:ro
       - openemr_sites:/var/www/localhost/htdocs/openemr/sites
       # Modulos PAHO (se clonan en el paso 8)
       - ./custom_modules:/var/www/localhost/htdocs/openemr/interface/modules/custom_modules
@@ -435,14 +435,14 @@ Montarlos en las rutas `selfsigned` evita el conflicto. El contenedor encuentra 
 
 ### 6.2 Archivo de logging de PHP
 
-Por defecto OpenEMR escribe sus errores de PHP dentro del log de errores de Apache, mezclados con los mensajes del servidor web. Este archivo los envía a un log aparte:
+Por defecto OpenEMR escribe sus errores de PHP dentro del log de errores de Apache, mezclados con los mensajes del servidor web. La imagen de OpenEMR 8.3.0 trae PHP 8.5, por eso el archivo se monta en `/etc/php85/conf.d/`. Una imagen anterior usa `/etc/php84/conf.d/`, y PHP ignora un archivo puesto en la carpeta equivocada. Este archivo los envía a un log aparte:
 
 ```bash
 nano ~/paio8/php-conf/openemr-logging.ini
 ```
 
 ```ini
-error_log = /var/log/php84/openemr-error.log
+error_log = /var/log/php85/openemr-error.log
 log_errors = On
 ```
 
@@ -455,7 +455,7 @@ Resultado después del paso 7:
 | `logs/apache2/error.log` | Errores de Apache |
 | `logs/apache2/access.log` | Peticiones HTTP |
 | `logs/apache2/ssl_error.log` | Errores de TLS |
-| `logs/php84/openemr-error.log` | Errores PHP de OpenEMR |
+| `logs/php85/openemr-error.log` | Errores PHP de OpenEMR |
 
 > **Nota:** El log de actividad de OpenEMR (quién hizo qué y cuándo) no es un archivo. Se guarda en la base de datos y se consulta desde **Administración → Logs**.
 
@@ -544,15 +544,14 @@ Espere unos 30 segundos antes de continuar.
 
 ---
 
-## 9. Registrar, instalar y habilitar los módulos
+## 9. Instalar y habilitar los módulos
 
-Inicie sesión en OpenEMR como administrador y vaya a **Módulos → Gestionar Módulos** (*Modules → Manage Modules*). Los cuatro módulos aparecerán en la lista de **No registrados** (*Unregistered*). Para cada uno, en este orden:
+Inicie sesión en OpenEMR como administrador y vaya a **Módulos → Gestionar Módulos** (*Modules → Manage Modules*). Los cuatro módulos aparecen en la lista **Custom Module Listings** con estado **Registrado** (*Registered*). OpenEMR registra por su cuenta un módulo personalizado en cuanto existe su carpeta, así que no hay nada que registrar a mano. Para cada uno, en este orden:
 
-1. Haga clic en **Registrar** (*Register*).
-2. Haga clic en **Instalar** (*Install*).
-3. Haga clic en **Habilitar** (*Enable*).
+1. Haga clic en **Instalar** (*Install*).
+2. Haga clic en **Habilitar** (*Enable*).
 
-Realice los tres pasos para los cuatro módulos:
+Realice los dos pasos para los cuatro módulos:
 
 - PAHO Jitsi Televisit
 - PAHO ICD-11 Integration
@@ -683,7 +682,7 @@ El `chmod -R u+w` hace falta porque OpenEMR deja sus archivos en modo solo lectu
 | `docker compose logs -f icd11-api` | Ver los logs de la API CIE-11 en tiempo real |
 | `tail -f ~/paio8/logs/apache2/error.log` | Errores del servidor web, desde el host |
 | `tail -f ~/paio8/logs/apache2/access.log` | Peticiones HTTP, desde el host |
-| `tail -f ~/paio8/logs/php84/openemr-error.log` | Errores PHP de OpenEMR, desde el host |
+| `tail -f ~/paio8/logs/php85/openemr-error.log` | Errores PHP de OpenEMR, desde el host |
 | `docker compose restart openemr` | Reiniciar solo OpenEMR |
 | `docker compose down` | Detener todos los servicios |
 | `docker compose up -d` | Iniciar todos los servicios |
